@@ -1,3 +1,4 @@
+import os
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -7,16 +8,41 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.metrics import accuracy_score
 
 # 1. Page Configuration
-st.set_page_config(page_title="Diabetes Prediction App", page_icon="🩺", layout="centered")
+st.set_page_config(
+    page_title="Diabetes Risk Analyzer",
+    page_icon="🩺",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 
-st.title("🩺 Diabetes Risk Prediction System")
-st.write("Enter the patient's clinical and lifestyle details below to predict diabetes risk.")
+# Custom CSS for cleaner cards and banner styling
+st.markdown("""
+    <style>
+    .main-header {
+        background: linear-gradient(90deg, #0f4c81 0%, #1b76bd 100%);
+        padding: 1.5rem 2rem;
+        border-radius: 12px;
+        color: white;
+        margin-bottom: 1.5rem;
+    }
+    .main-header h1 {
+        margin: 0;
+        font-size: 2rem;
+        font-weight: 700;
+    }
+    .main-header p {
+        margin: 0.4rem 0 0 0;
+        font-size: 1rem;
+        opacity: 0.9;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
 # 2. Load, Clean & Train Model (Cached for fast performance)
 @st.cache_resource
 def load_and_train():
-    # Update the file path if your CSV has a different name or folder
-    data = pd.read_csv("Diabetes_Prediction_Dataset.csv")
+    file_path = os.path.join(os.path.dirname(__file__), "Diabetes_Prediction_Dataset.csv")
+    data = pd.read_csv(file_path)
     
     # Drop ID and duplicates
     data = data.drop(columns=['Patient_ID'], errors='ignore').drop_duplicates()
@@ -50,65 +76,139 @@ def load_and_train():
     model.fit(X_train_imp, y_train)
     
     accuracy = accuracy_score(y_test, model.predict(X_test_imp)) * 100
-    return model, imputer, X.columns, accuracy
+    importances = pd.Series(model.feature_importances_, index=X.columns).sort_values(ascending=False)
+    
+    return model, imputer, X.columns, accuracy, importances, len(data)
 
 try:
-    model, imputer, feature_columns, model_accuracy = load_and_train()
-    st.sidebar.success(f"Model Ready (Test Accuracy: {model_accuracy:.2f}%)")
+    model, imputer, feature_columns, model_accuracy, feature_importances, total_records = load_and_train()
 except FileNotFoundError:
-    st.error("Error: 'diabetes_data.csv' not found. Please place your dataset in the same folder as this script.")
+    st.error("Error: 'Diabetes_Prediction_Dataset.csv' not found. Ensure it is uploaded to the same folder on GitHub.")
     st.stop()
 
-# 3. User Input Form
-st.subheader("Patient Information")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    age = st.number_input("Age (years)", min_value=1, max_value=120, value=45)
-    gender = st.selectbox("Gender", ["Female", "Male", "Unknown"])
-    bmi = st.number_input("BMI", min_value=10.0, max_value=70.0, value=28.5, step=0.1)
-    glucose = st.number_input("Glucose Level (mg/dL)", min_value=40, max_value=400, value=140)
-    blood_pressure = st.number_input("Blood Pressure (mm Hg)", min_value=40, max_value=250, value=120)
-    cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=80, max_value=500, value=200)
-
-with col2:
-    insulin = st.number_input("Insulin Level (mu U/ml)", min_value=0, max_value=500, value=120)
-    hba1c = st.number_input("HbA1c (%)", min_value=3.0, max_value=18.0, value=6.5, step=0.1)
-    smoking = st.selectbox("Smoking Status", ["Never", "Former", "Current"])
-    activity = st.selectbox("Physical Activity", ["Low", "Moderate", "High"])
-    family_history = st.selectbox("Family History of Diabetes", ["No", "Yes"])
-
-# 4. Predict Button
-if st.button("Predict Diabetes Risk", type="primary"):
-    input_df = pd.DataFrame([{
-        'Age': age,
-        'Gender': gender,
-        'BMI': bmi,
-        'Glucose': glucose,
-        'Blood_Pressure': blood_pressure,
-        'Cholesterol': cholesterol,
-        'Insulin': insulin,
-        'HbA1c': hba1c,
-        'Smoking_Status': smoking,
-        'Physical_Activity': activity,
-        'Family_History': family_history
-    }])
-    
-    # Encode and align columns with training data
-    input_encoded = pd.get_dummies(input_df)
-    input_encoded = input_encoded.reindex(columns=feature_columns, fill_value=0)
-    input_imputed = imputer.transform(input_encoded)
-    
-    # Generate prediction and probability
-    prediction = model.predict(input_imputed)[0]
-    probability = model.predict_proba(input_imputed)[0][1] * 100
-    
+# 3. Sidebar Info
+with st.sidebar:
+    st.markdown(
+        """
+        <div style="background-color:#e6f2ff; width:72px; height:72px; border-radius:16px;
+                    display:flex; align-items:center; justify-content:center;
+                    margin-bottom:12px; border: 1px solid #b3d7ff;">
+            <svg xmlns="http://w3.org" width="40" height="40" viewBox="0 0 24 24"
+                 fill="none" stroke="#1b76bd" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4.8 2.3A.3.3 0 1 0 5 2H4a2 2 0 0 0-2 2v5a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6V4a2 2 0 0 0-2-2h-1a.2.2 0 1 0 .3.3"/>
+                <path d="M8 15v1a6 6 0 0 0 6 6v0a6 6 0 0 0 6-6v-4"/>
+                <circle cx="20" cy="10" r="2"/>
+            </svg>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.title("Clinical AI Assistant")
+    st.markdown("This tool uses a **Random Forest Classifier** trained on patient health records to assess diabetes risk.")
     st.divider()
-    if prediction == 1:
-        st.error(f"### Prediction: **Positive (High Diabetes Risk)**")
-    else:
-        st.success(f"### Prediction: **Negative (Low Diabetes Risk)**")
+    st.metric("Model Test Accuracy", f"{model_accuracy:.2f}%")
+    st.metric("Training Dataset Size", f"{total_records:,} Patients")
+    st.divider()
+    st.caption("⚠️ **Disclaimer:** Built for educational and portfolio demonstration purposes only. Not a substitute for professional medical diagnosis.")
+
+
+# 4. Hero Header
+st.markdown("""
+    <div class="main-header">
+        <h1>🩺 Diabetes Risk Prediction System</h1>
+        <p>Complete the patient's clinical, laboratory, and lifestyle profile below to generate an instant risk assessment.</p>
+    </div>
+""", unsafe_allow_html=True)
+
+# 5. Main Navigation Tabs
+tab_predict, tab_insights = st.tabs(["🔍 Patient Risk Assessment", "📊 Model & Feature Insights"])
+
+with tab_predict:
+    # Three-column card layout for clean grouping
+    col1, col2, col3 = st.columns(3, gap="medium")
+
+    with col1:
+        with st.container(border=True):
+            st.markdown("#### 👤 Demographics & Vitals")
+            age = st.slider("Age (years)", min_value=1, max_value=100, value=45)
+            gender = st.selectbox("Gender", ["Female", "Male", "Unknown"])
+            bmi = st.number_input("Body Mass Index (BMI)", min_value=10.0, max_value=70.0, value=28.5, step=0.1)
+            blood_pressure = st.number_input("Blood Pressure (mm Hg)", min_value=40, max_value=250, value=120)
+
+    with col2:
+        with st.container(border=True):
+            st.markdown("#### 🧪 Lab Results")
+            glucose = st.number_input("Glucose Level (mg/dL)", min_value=40, max_value=400, value=140)
+            hba1c = st.number_input("HbA1c (%)", min_value=3.0, max_value=18.0, value=6.5, step=0.1)
+            insulin = st.number_input("Insulin Level (mu U/ml)", min_value=0, max_value=500, value=120)
+            cholesterol = st.number_input("Cholesterol (mg/dL)", min_value=80, max_value=500, value=200)
+
+    with col3:
+        with st.container(border=True):
+            st.markdown("#### 🏃 Lifestyle & History")
+            smoking = st.radio("Smoking Status", ["Never", "Former", "Current"], horizontal=True)
+            activity = st.select_slider("Physical Activity Level", options=["Low", "Moderate", "High"], value="Moderate")
+            family_history = st.radio("Family History of Diabetes", ["No", "Yes"], horizontal=True)
+            st.write("")  # Spacing alignment
+
+    st.write("")
+    predict_btn = st.button("Analyze Diabetes Risk", type="primary", use_container_width=True)
+
+    # 6. Prediction Output Section
+    if predict_btn:
+        input_df = pd.DataFrame([{
+            'Age': age,
+            'Gender': gender,
+            'BMI': bmi,
+            'Glucose': glucose,
+            'Blood_Pressure': blood_pressure,
+            'Cholesterol': cholesterol,
+            'Insulin': insulin,
+            'HbA1c': hba1c,
+            'Smoking_Status': smoking,
+            'Physical_Activity': activity,
+            'Family_History': family_history
+        }])
         
-    st.metric(label="Estimated Diabetes Probability", value=f"{probability:.1f}%")
-    st.caption("Disclaimer: This tool is for educational and data analysis demonstration purposes only, not medical advice.")
+        input_encoded = pd.get_dummies(input_df)
+        input_encoded = input_encoded.reindex(columns=feature_columns, fill_value=0)
+        input_imputed = imputer.transform(input_encoded)
+        
+        prediction = model.predict(input_imputed)[0]
+        probability = model.predict_proba(input_imputed)[0][1] * 100
+
+        st.divider()
+        st.subheader("📋 Diagnostic Assessment Result")
+
+        res_col1, res_col2 = st.columns([1.4, 1], gap="large")
+
+        with res_col1:
+            with st.container(border=True):
+                if prediction == 1:
+                    st.error("### ⚠️ Positive: Elevated Diabetes Risk")
+                    st.write("The model indicates a **high likelihood of diabetes** based on the patient's metabolic and clinical profile.")
+                else:
+                    st.success("### ✅ Negative: Low Diabetes Risk")
+                    st.write("The model indicates a **low likelihood of diabetes** based on the current clinical inputs.")
+
+                st.write("**Risk Probability Score:**")
+                st.progress(int(round(probability)))
+                st.metric(label="Estimated Probability", value=f"{probability:.1f}%")
+
+        with res_col2:
+            with st.container(border=True):
+                st.markdown("#### Key Patient Biomarkers")
+                m1, m2 = st.columns(2)
+                m1.metric("Glucose", f"{glucose} mg/dL", delta="High" if glucose >= 126 else "Normal", delta_color="inverse")
+                m2.metric("HbA1c", f"{hba1c}%", delta="Elevated" if hba1c >= 6.5 else "Normal", delta_color="inverse")
+                m3, m4 = st.columns(2)
+                m3.metric("BMI", f"{bmi}", delta="Overweight" if bmi >= 25 else "Healthy", delta_color="inverse")
+                m4.metric("Blood Pressure", f"{blood_pressure} mmHg", delta="High" if blood_pressure >= 130 else "Normal", delta_color="inverse")
+
+with tab_insights:
+    st.subheader("Top Factors Driving Model Predictions")
+    st.write("This chart shows how strongly each clinical and lifestyle feature influences the Random Forest classifier's decisions.")
+    
+    top_features = feature_importances.head(10).reset_index()
+    top_features.columns = ["Feature", "Importance Score"]
+    st.bar_chart(top_features.set_index("Feature"), horizontal=True)
